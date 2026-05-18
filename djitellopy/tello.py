@@ -7,8 +7,9 @@ import socket
 import time
 from datetime import datetime
 from collections import deque
-from threading import Thread, Lock
+from threading import Thread, Lock, get_ident
 from typing import Optional, Union, Type, Dict
+from types import FunctionType as FuncT
 
 from .enforce_types import enforce_types
 
@@ -20,10 +21,19 @@ threads_initialized = False
 drones: Optional[dict] = {}
 client_socket: socket.socket
 
+onerror_f: FuncT | None = None
+onerror_args: list | None = None
+def onerror(f: FuncT | None = None, *args):
+    global onerror_f, onerror_args
+    onerror_f = f
+    if args: onerror_args = args
+
 
 class TelloException(Exception):
     pass
 
+
+tello_instances: int = 0
 
 @enforce_types
 class Tello:
@@ -32,6 +42,7 @@ class Tello:
     [1.3](https://dl-cdn.ryzerobotics.com/downloads/tello/20180910/Tello%20SDK%20Documentation%20EN_1.3.pdf),
     [2.0 with EDU-only commands](https://dl-cdn.ryzerobotics.com/downloads/Tello/Tello%20SDK%202.0%20User%20Guide.pdf)
     """
+
     # Send and receive commands, client socket
     RESPONSE_TIMEOUT = 7  # in seconds
     TAKEOFF_TIMEOUT = 20  # in seconds
@@ -103,7 +114,7 @@ class Tello:
                  retry_count=RETRY_COUNT,
                  vs_udp=VS_UDP_PORT):
 
-        global threads_initialized, client_socket, drones
+        global threads_initialized, client_socket, drones, tello_instances
 
         self.address = (host, Tello.CONTROL_UDP_PORT)
         self.stream_on = False
@@ -114,13 +125,16 @@ class Tello:
         if not threads_initialized:
             # Run Tello command responses UDP receiver on background
             client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             client_socket.bind(("", Tello.CONTROL_UDP_PORT))
+            """
             response_receiver_thread = Thread(target=Tello.udp_response_receiver)
             response_receiver_thread.daemon = True
             response_receiver_thread.start()
+            """
 
-            # Run state UDP receiver on background
-            state_receiver_thread = Thread(target=Tello.udp_state_receiver)
+            # Run UDP receiver on background
+            state_receiver_thread = Thread(target=Tello.udp_receiver)
             state_receiver_thread.daemon = True
             state_receiver_thread.start()
 
@@ -131,6 +145,8 @@ class Tello:
         self.LOGGER.info("Tello instance was initialized. Host: '{}'. Port: '{}'.".format(host, Tello.CONTROL_UDP_PORT))
 
         self.vs_udp_port = vs_udp
+
+        tello_instances += 1
 
 
     def change_vs_udp(self, udp_port):
@@ -150,11 +166,18 @@ class Tello:
         return drones[host]
 
     @staticmethod
+    def call_error_handler(err: Exception):
+        if not onerror_f or not onerror_args:
+            return False
+        return onerror_f(err, *onerror_args)
+
+    """
+    @staticmethod
     def udp_response_receiver():
-        """Setup drone UDP receiver. This method listens for responses of Tello.
+        ""Setup drone UDP receiver. This method listens for responses of Tello.
         Must be run from a background thread in order to not block the main thread.
         Internal method, you normally wouldn't call this yourself.
-        """
+        ""
         while True:
             try:
                 data, address = client_socket.recvfrom(1024)
@@ -167,21 +190,25 @@ class Tello:
 
                 drones[address]['responses'].append(data)
 
-            except Exception as e:
+            except KeyboardInterrupt as e:
                 Tello.LOGGER.error(e)
                 break
+            except Exception as e:
+                Tello.LOGGER.error(e)
+    """
 
     @staticmethod
-    def udp_state_receiver():
+    def udp_receiver():
         """Setup state UDP receiver. This method listens for state information from
         Tello. Must be run from a background thread in order to not block
         the main thread.
         Internal method, you normally wouldn't call this yourself.
         """
         state_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        state_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         state_socket.bind(("", Tello.STATE_UDP_PORT))
 
-        while True:
+        while tello_instances > 0:
             try:
                 data, address = state_socket.recvfrom(1024)
 
@@ -196,9 +223,25 @@ class Tello:
                 data['received_at'] = datetime.now()
                 drones[address]['state'] = data
 
+                data, address = client_socket.recvfrom(1024)
+
+                address = address[0]
+                Tello.LOGGER.debug('Data received from {} at client_socket'.format(address))
+
+                if address not in drones:
+                    continue
+
+                drones[address]['responses'].append(data)
+
+            except KeyboardInterrupt:
+                pass
             except Exception as e:
                 Tello.LOGGER.error(e)
-                break
+                if not Tello.call_error_handler(e):
+                    break
+        
+        state_socket.close()
+        client_socket.close()
 
     @staticmethod
     def parse_state(state: str) -> Dict[str, Union[int, float, str]]:
@@ -1045,7 +1088,9 @@ class Tello:
             del drones[host]
 
     def __del__(self):
+        global tello_instances
         self.end()
+        tello_instances -= 1
 
 
 class BackgroundFrameRead:

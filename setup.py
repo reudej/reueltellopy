@@ -4,21 +4,21 @@ with open("README.md", "r", encoding="utf-8") as fd:
     long_description = fd.read()
 
 # replace relative urls to example files with absolute urls to the main git repo
-repo_code_url = "https://github.com/damiafuentes/DJITelloPy/tree/master"
+repo_code_url = "https://github.com/reudej/reueltellopy/tree/master"
 long_description = long_description.replace("](examples/", "]({}/examples/".format(repo_code_url))
 
 setuptools.setup(
-    name='djitellopy',
-    packages=['djitellopy'],
+    name='reueltellopy',
+    packages=['reueltellopy'],
     version='2.5.0',
     license='MIT',
     description='Tello drone library including support for video streaming, swarms, state packets and more',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    author='Jakob Löw',
+    author='Jakob Löw, partially debugged by Reuel Dejmal',
     author_email='djitellopy@m4gnus.de',
-    url='https://github.com/damiafuentes/DJITelloPy',
-    download_url='https://github.com/damiafuentes/DJITelloPy/archive/2.5.0.tar.gz',
+    url='https://github.com/reudej/reueltellopy',
+    download_url='https://github.com/reudej/reueltellopyy/archive/refs/heads/master.zip',
     keywords=['tello', 'dji', 'drone', 'sdk', 'official sdk'],
     install_requires=[
         'numpy',
