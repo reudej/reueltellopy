@@ -18,7 +18,7 @@ setuptools.setup(
     author='Jakob Löw, partially debugged by Reuel Dejmal',
     author_email='djitellopy@m4gnus.de',
     url='https://github.com/reudej/reueltellopy',
-    download_url='https://github.com/reudej/reueltellopyy/archive/refs/heads/master.zip',
+    download_url='https://github.com/reudej/reueltellopy/archive/refs/heads/master.zip',
     keywords=['tello', 'dji', 'drone', 'sdk', 'official sdk'],
     install_requires=[
         'numpy',
